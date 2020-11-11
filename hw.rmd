@@ -1,0 +1,254 @@
+---
+title: "Assignment 9"
+subtitle: ""
+
+author:
+  - Boyi Zhang^[
+    Department of Statistics, University of Connecticut.]
+    
+    
+    
+    
+date: "`r format(Sys.Date())`"
+documentclass: article
+papersize: letter
+fontsize: 11pt
+biblio-style: asa
+output:
+  pdf_document:  default
+  html_document: default
+  
+--- 
+
+\newpage
+# Ex 7.5.1
+## Implement the important sampling method
+```{r}
+isAppr <- function(n, h, df, dg, rg, ...) {
+  x <- rg(n, ...)
+  mean( h(x) * df(x) / dg(x, ...) )
+}
+
+h <- function(x) x^2
+df <- function(x){
+  1/(5*sqrt(2*pi))*x^2*exp(-(x-2)^2/2)
+}
+
+mySummary <- function(nrep, n, h, df, dg, rg) {
+##    browser()
+    sim <- replicate(nrep, isAppr(n, h, df, dg, rg))
+    c(mean = mean(sim), sd = sd(sim))
+}
+```
+In order to get the variances of the estimates, we MC 100 times for convenience. Here are the results:
+
+```{r}
+result = as.data.frame(sapply(c(1000,10000,50000), 
+       function(shp) {
+           rg <- function(n) rnorm(n)
+           dg <- function(x) dnorm(x)
+           mySummary(100, shp, h, df, dg, rg)
+       }))
+names(result) = c('1000samples','10000samples','50000samples')
+print(result)
+```
+
+As we can see, the variances of the estimates ($\mathrm{sd}^2$) getting smaller when more samples take into account.
+
+## Design a better importance sampling method to estimate
+In order to make a better importance sampling method, we first compare the difference of the real pdf multiply aim function ($x^2f$) and sampling pdf ($g$). Because the method is the most effective when they are proportioned.
+
+Because we only need a better one, for simplicity, we only focus on aligning the location of this two function. We will not change any parameter of a normal pdf $g$, but only for the mean. Here is the picture. (Notice $x^2f$ has been normalized.)
+
+```{r}
+hf <- function(x){
+  (x^2/(5*sqrt(2*pi))*x^2*exp(-(x-2)^2/2))/integrate(function(x) (x^2/(5*sqrt(2*pi))*x^2*exp(-(x-2)^2/2)),lower=-Inf,upper=Inf)$value
+}
+
+
+plot(hf,xlim=c(-6,6))
+plot(dnorm,xlim=c(-6,6),col='red',lty=2,add=TRUE)
+legend('topleft', legend=c("real pdf", "sampling pdf"),col=c("black", "red"), lty=1:2)
+```
+even though the shapes are similar in some degree, the location is quite difference, so we make the sampling pdf move to the left about 3.2 units. The reason why we choose move 3.2 units is because.
+```{r}
+optimize(hf,c(0,6),maximum=TRUE)
+```
+Now, we have the sampling pdf $\sim N(mean=2.7,sd=1)$.
+
+
+## Implement your method 
+The same, we gave the average estimates and their standard deviation:
+
+```{r}
+result = as.data.frame(sapply(c(1000,10000,50000), 
+       function(shp) {
+           rg <- function(n) rnorm(n,mean = 3.2)
+           dg <- function(x) dnorm(x, mean = 3.2)
+           mySummary(100, shp, h, df, dg, rg)
+       }))
+names(result) = c('1000samples','10000samples','50000samples')
+print(result)
+```
+
+
+## Compare the two results from the two methods and comment.
+As, we can see, even we take only 1000 samples with the sampling pdf $\sim N(mean=3.2,sd=1)$, the average estimates much more extraordinary accurate and robust than 50000 samples when we use standard normal as the sampling pdf, and also the variances of the importance sampling estimates are incredible small. So, choosing an appropriate sampling pdf which is similar to the original pdf is very vital for the speed of the method for making a fast speed of the convergence.
+
+
+
+
+# Ex 7.5.2
+## Write down and implement an algorithm to sample the path 
+As I found the solution of this SDE,
+$\log S(t)=\log S(0)+(r-\sigma^2/2)t+\sigma W_t$.
+So, analogue to the Brownian motion.
+```{r}
+rGBM <- function(tgrid, sigma, r = 0.05,s0 = 1) {
+    dt <- diff(tgrid)
+    s <- exp((r-sigma^2/2)*dt+sigma*rnorm(length(dt),sd = sqrt(dt),mean = 0))
+    c(s0, cumprod(s) * s0)
+}
+```
+
+## How do the correlation coefficients change as $K$ increases?
+```{r}
+size = 5000
+sigma = 0.5
+T = 1
+n = 12
+result = numeric(0)
+for(K in c(1.1,1.2,1.3,1.4,1.5)){
+  Sa = numeric(0)
+  Sg = numeric(0)
+  St = numeric(0)
+  
+  for(i in 1:size){
+    st = rGBM(seq(0,1,length.out = n+1),sigma=sigma)[-1]
+    Sa[i] = mean(st)
+    Sg[i] = exp(mean(log(st)))
+    St[i] = st[n]
+  }
+  
+  Pa = pmax(0,Sa-K)*exp(-0.05*T)
+  Pe = pmax(0,St-K)*exp(-0.05*T)
+  Pg = pmax(0,Sg-K)*exp(-0.05*T)
+  
+  result = c(result,c(cor(Pa,St),cor(Pa,Pe),cor(Pa,Pg)))
+}
+re = data.frame(matrix(result,nrow=3))
+
+names(re)=c('K=1.1','K=1.2','K=1.3','K=1.4','K=1.5')
+row.names(re)=c('Corr(Pa,St)','Corr(Pa,Pe)','Corr(Pa,Pg)')
+print(re)
+```
+We can found that:
+
+With the $K$ increase, those three types correlation coefficients getting smaller in general.
+
+## How do the correlation coefficients change as $\sigma$ increases?
+
+```{r}
+size = 5000
+K = 1.5
+T = 1
+n = 12
+result = numeric(0)
+for(sigma in c(0.2,0.3,0.4,0.5)){
+  Sa = numeric(0)
+  Sg = numeric(0)
+  St = numeric(0)
+  
+  for(i in 1:size){
+    st = rGBM(seq(0,1,length.out = n+1),sigma=sigma)[-1]
+    Sa[i] = mean(st)
+    Sg[i] = exp(mean(log(st)))
+    St[i] = st[n]
+  }
+  
+  Pa = pmax(0,Sa-K)*exp(-0.05*T)
+  Pe = pmax(0,St-K)*exp(-0.05*T)
+  Pg = pmax(0,Sg-K)*exp(-0.05*T)
+  
+  result = c(result,c(cor(Pa,St),cor(Pa,Pe),cor(Pa,Pg)))
+}
+re = data.frame(matrix(result,nrow=3))
+
+names(re)=c('sigma=0.2','sigma=0.3','sigma=0.4','sigma=0.5')
+row.names(re)=c('Corr(Pa,St)','Corr(Pa,Pe)','Corr(Pa,Pg)')
+print(re)
+```
+There is no obvious phenomenon in $Corr(P_A,P_G)$, which has a strong positively correlated. But for other two type of Correlations, they ($P_A$ with $S(t)$ or $P_E$) are getting stronger positively correlated with each others.
+
+## How do the correlation coefficients change as $T$ increases?
+
+```{r}
+size = 5000
+K = 1.5
+sigma = 0.5
+n = 12
+result = numeric(0)
+for(T in c(0.4,0.7,1,1.3,1.6)){
+  Sa = numeric(0)
+  Sg = numeric(0)
+  St = numeric(0)
+  
+  for(i in 1:size){
+    st = rGBM(seq(0,1,length.out = n+1),sigma=sigma)[-1]
+    Sa[i] = mean(st)
+    Sg[i] = exp(mean(log(st)))
+    St[i] = st[n]
+  }
+  
+  Pa = pmax(0,Sa-K)*exp(-0.05*T)
+  Pe = pmax(0,St-K)*exp(-0.05*T)
+  Pg = pmax(0,Sg-K)*exp(-0.05*T)
+  
+  result = c(result,c(cor(Pa,St),cor(Pa,Pe),cor(Pa,Pg)))
+}
+re = data.frame(matrix(result,nrow=3))
+
+names(re)=c('T=0.4','T=0.7','T=1','T=1.3','T=1.6')
+row.names(re)=c('Corr(Pa,St)','Corr(Pa,Pe)','Corr(Pa,Pg)')
+print(re)
+```
+
+It seems $T$ has no effect on those three type of correlations.
+
+## Compare its SD with the SD of the MC estimator
+
+```{r}
+size = 5000
+K = 1.5
+sigma = 0.4
+T = 1
+n = 12
+Sa = numeric(0)
+Sg = numeric(0)
+
+for(i in 1:size){
+  st = rGBM(seq(0,1,length.out = n+1),sigma=sigma)[-1]
+  Sa[i] = mean(st)
+  Sg[i] = exp(mean(log(st)))
+}
+  
+Pa = pmax(0,Sa-K)*exp(-0.05*T)
+Pg = pmax(0,Sg-K)*exp(-0.05*T)
+
+b = cov(Pa,Pg)/var(Pa)
+Pacv = Pa - b * (Pg-mean(Pg))
+
+
+result = c(mean(Pa),sd(Pa),mean(Pacv),sd(Pacv))
+re = data.frame(matrix(result,nrow=2))
+names(re)=c('No control variate','With control variate')
+row.names(re)=c('mean','sd')
+
+print(re)
+
+```
+
+As we can see, the MC estimator for $\mathbb{E}(P_A)$ still holds, but the SD with the control variate MC estimate is significant smaller than the SD which has no control variate.
+
+
+bookdown::render_book('hw.rmd','bookdown::gitbook')
